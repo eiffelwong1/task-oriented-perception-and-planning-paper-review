@@ -11,6 +11,45 @@ import random
 import gurobipy as grb
 import pandas as pd
 import matplotlib.pyplot as plt
+import copy
+
+def isPath(map, start, end) :
+    arr = copy.deepcopy(map)
+    Dir = [ [0, 1], [0, -1], [1, 0], [-1, 0]]
+    q = []
+    q.append((0, 0))
+    row, col = 10, 10
+
+    if arr[0,0] != 0:
+        return False
+    if start == end:
+        return False
+    if end[0] + end[1] < 3:
+        return False
+     
+    # until queue is empty
+    while(len(q) > 0) :
+        p = q[0]
+        q.pop(0)
+         
+        # mark as visited
+        arr[p[0],p[1]] = -1
+         
+        # destination is reached.
+        if(p == end) :
+            return True
+             
+        # check all four directions
+        for i in range(4) :
+         
+            # using the direction array
+            a = p[0] + Dir[i][0]
+            b = p[1] + Dir[i][1]
+             
+            # not blocked and valid
+            if(a >= 0 and b >= 0 and a < row and b < col and arr[a][b] == 0) :           
+                q.append((a, b))
+    return False
 
 class MC:
     """Generate an MDP object for a problem"""
@@ -175,57 +214,15 @@ class Policy:
 class MDP:
     """Generate an MDP object for a problem"""
 
-    def __init__(self, problem_type, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
+        self.problem_type = 'gridworld'
+        self.gridworld_2D(dim=(10,10), p_correctmove=0.85, init_state=0)
 
-        self.problem_type = problem_type
+    def get_current_gridworld (self, x_state_num,y_state_num):
+        return np.append(  self.label_true.reshape((-1,2)), np.zeros(49) )
 
-        if self.problem_type == 'simple':
-            self.simple_problem()
-        elif self.problem_type == 'book':
-            self.book_ex()
-        elif self.problem_type == 'gridworld':
-            self.gridworld_2D()
-        else:
-            raise NameError("Given problem type is not supported")
-
-    def simple_problem(self):
-        """Create a simple MDP with small size"""
-
-        self.states = np.arange(3) # set of states
-        self.init_state = 0 # initial state
-        self.actions = np.arange(3) # set of actions
-        self.action_mapping = {0 : 'a', 1 : 'b', 2 : 'c'}
-        self.enabled_actions = np.array([[1,1,0],[1,0,1],[0,1,1]], dtype=np.bool) # enabled actions in states
-        self.transitions = np.array([
-                [[0,1,0],[0,0,1],[0,0,0]],
-                [[1,0,0],[0,0,0],[0,1,0]],
-                [[0,0,0],[1,0,0],[0,0,1]]], dtype=np.float64) # transition function
-
-    def book_ex(self):
-        """Create a test MDP from model-checking book Figure 10.21"""
-
-        self.states = np.arange(8) # set of states
-        self.init_state = 0 # initial state
-        self.actions = np.arange(2) # set of actions
-        self.action_mapping = {0 : 'alpha', 1 : 'beta'}
-        self.enabled_actions = np.array([[1,1],
-                                         [1,0],
-                                         [1,0],
-                                         [1,0],
-                                         [1,0],
-                                         [1,1],
-                                         [1,0],
-                                         [1,0]], dtype=np.bool) # enabled actions in states
-        self.transitions = np.zeros((len(self.states),len(self.actions),
-                                     len(self.states)), dtype=np.float64) # transition function
-        self.transitions[0,0,[1]] = [1]; self.transitions[0,1,[2,4]] = [1/3,2/3]
-        self.transitions[1,0,[1,2,3]] = [1/2,7/18,1/9]
-        self.transitions[2,0,[2]] = [1]
-        self.transitions[3,0,[3]] = [1]
-        self.transitions[4,0,[5,6]] = [1/4,3/4]
-        self.transitions[5,0,[6]] = [1]; self.transitions[5,1,[2,7]] = [1/3,2/3]
-        self.transitions[6,0,[5,6]] = [2/5,3/5]
-        self.transitions[7,0,[2,3]] = [1/2,1/2]
+    def compute_visibility_for_all(self, agent_y, agent_x, radius = 1):
+        return self.label_true[agent_x-radius: agent_x+radius, agent_y+radius: agent_y-radius]
 
     def action_effect(self, state, action):
         """Determines the correct and incorrect effect of actions"""
@@ -303,66 +300,33 @@ class MDP:
     def semantic_representation(self, property_dist='random', prior_belief='random'):
         """Assign semantics to MDP states"""
 
-        if self.problem_type == 'simple':
-            self.properties = np.arange(2)
-            self.property_mapping = {0 : 'p', 1 : 'q'}
-            self.label_true = np.array([[0,0],[0,0],[1,0]],
-                                       dtype=np.bool) # true property labels of states
-            self.label_belief = np.array([[0,0],[0,0.7],[0.6,0]],
-                                         dtype=np.float64) # truthness confidence (belief) over property labels
-
-        elif self.problem_type == 'book':
-            self.properties = np.arange(1)
-            self.property_mapping = {0 : 'target'}
-            self.label_true = np.zeros((len(self.states),len(self.properties)),
-                                       dtype=np.bool) # true property labels of states
-            self.label_true[3,0] = True
-            self.label_belief = np.zeros((len(self.states),len(self.properties)),
-                                         dtype=np.float64) # truthness confidence (belief) over property labels
-            self.label_belief[3,0] = 0.8; self.label_belief[6,0] = 0.25;
-
-        elif self.problem_type == 'gridworld':
+        if self.problem_type == 'gridworld':
             self.properties = np.arange(2)
             self.property_mapping = {0 : 'obstacle', 1 : 'target'}
 
             self.label_true = np.zeros((len(self.states),len(self.properties)),
                                        dtype=np.bool) # true property labels of states
             if property_dist == 'random':
-#                # random obstacles
-#                n_obstacle = 10
-#                obstacle_pos = np.random.randint(0,len(self.states),n_obstacle)
-                obstacle_pos = [65,66,67,68,69,70,
-                                102,103,104,105,106,107,
-                                139,140,141,142,143,144,
-                                160,161,162,163,164,165,166,167,168,169,170,171,172,176,177,178,179,180,181,
-                                197,198,199,200,201,202,203,204,205,206,207,208,209,213,214,215,216,217,218,
-                                234,235,236,237,238,239,240,241,242,243,244,245,246,250,251,252,253,254,255,
-                                271,272,273,274,275,276,277,278,279,280,281,282,283,
-                                311,312,313,314,315,316,317,
-                                348,349,350,351,352,353,354,
-                                376,377,378,379,380,381,382,385,386,387,388,389,390,391,401,402,
-                                413,414,415,416,417,418,419,422,423,424,425,426,427,428,438,439,
-                                450,451,452,453,454,455,456,473,474,475,476,477,
-                                487,488,489,490,491,492,493,510,511,512,513,514,
-                                524,525,526,527,528,529,530,
-                                561,562,563,564,565,566,567,591,
-                                598,599,600,601,602,603,604,628,
-                                635,636,637,638,639,640,641,649,650,651,652,653,654,655,656,657,658,659,660,661,665,
-                                672,673,674,675,676,677,678,686,687,688,689,690,691,692,693,694,695,696,697,698,702,
-                                709,710,711,712,713,714,715,723,724,725,726,727,728,729,730,731,732,733,734,735,
-                                746,747,748,749,750,751,752,760,761,762,763,764,765,766,767,768,769,770,771,772,
-                                783,784,785,786,787,788,789,797,798,799,800,801,802,803,804,805,806,807,808,809,
-                                820,821,822,823,824,825,826,834,835,836,837,838,839,840,841,842,843,844,845,846,
-                                871,872,873,874,875,876,877,878,879,880,881,882,883]
-                self.label_true[obstacle_pos,0] = 1
-#                # random targets
-#                n_target = 2
-#                target_pos = np.random.randint(0,len(self.states),n_target)
-                target_pos = [467,468,469,470,
-                              504,505,506,507,
-                              541,542,543,544,
-                              578,579,580,581]
-                self.label_true[target_pos,1] = 1
+                print("getting map")
+                while True:
+                   
+                    self.label_true = np.zeros((len(self.states),len(self.properties)),
+                                       dtype=np.bool) # true property labels of states
+                    # random obstacles
+                    n_obstacle = 30
+                    obstacle_pos = np.random.randint(0,len(self.states),n_obstacle)
+                    
+                    self.label_true[obstacle_pos,0] = 1
+    #                # random targets
+                    n_target = 1
+                    target_pos = np.random.randint(0,len(self.states),n_target)
+                    self.label_true[target_pos,1] = 1
+
+
+                    if isPath(self.label_true[:,0].reshape(10,10), (0,0), (target_pos//10, target_pos%10)):
+                        break
+
+                
 
             self.label_belief = np.zeros((len(self.states),len(self.properties)),
                                          dtype=np.float64) # truthness confidence (belief) over property labels
@@ -401,6 +365,8 @@ class MDP:
 
         else:
             raise NameError("Given problem type has no defined semantics")
+
+    
 
     def state_neighbor(self, state, degree):
         """Find neighbors of a state up tp a given degree of closeness"""
@@ -478,7 +444,7 @@ def verifier(model, spec):
     if len(spec) == 2:
         # reach-avoid specification
         if len(set.intersection(set(spec[0]),set(spec[1]))) != 0:
-            print("The specification creates conflict --- reach set updated by removing avoid elements")
+            #print("The specification creates conflict --- reach set updated by removing avoid elements")
             spec[1] = list(set.difference(set(spec[1]),set(spec[0])))
 
         for b in spec[0]:
@@ -752,6 +718,7 @@ def simulation(model, spec, perc_flag=False, bayes_flag=False,
     infqual_hist = []
     infqual_hist.append(info_qual(model.label_belief))
     risk_hist = []
+    spec_est = [[],[]]
 
     while not term_flag:
 
@@ -786,7 +753,7 @@ def simulation(model, spec, perc_flag=False, bayes_flag=False,
             else:
                 pass
         timestep += 1
-        print("Timestep:   ",timestep)
+        #print("Timestep:   ",timestep)
         state = state_hist[-1]
         opt_act = opt_policy[state]
         if 0 in opt_act and len(opt_act)>1:
@@ -837,28 +804,29 @@ def simulation(model, spec, perc_flag=False, bayes_flag=False,
     print("Number of Time Steps:   ",timestep)
     print("Number of Replanning:   ",plan_count)
 
-    return (state_hist,action_hist,infqual_hist,risk_hist,timestep,plan_count,task_flag)
+    return (state_hist,action_hist,infqual_hist,risk_hist,timestep,plan_count,task_flag,model.label_true,model.label_belief)
 
 if __name__ == '__main__':
 
     # define simulation parameters
-    n_iter = 20
+    n_iter = 100
     infqual_hist_all = []
     risk_hist_all = []
     timestep_all = []
     plan_count_all = []
     task_flag_all = []
+    time_all = []
 
     for iter in range(n_iter):
-
+        print("iter: ", iter)
         # create problem setting
         model = MDP('gridworld')
         model.semantic_representation(prior_belief='random')
-        perc_flag = True
-        bayes_flag = True
-        replan_flag = True
-        div_test_flag = True
-        act_info_flag = True
+        perc_flag = False
+        bayes_flag = False
+        replan_flag = False
+        div_test_flag = False
+        act_info_flag = False
         spec_true = [[],[]]
         for s in range(len(model.states)):
             if model.label_true[s,0] == True:
@@ -866,8 +834,9 @@ if __name__ == '__main__':
             if model.label_true[s,1] == True:
                 spec_true[1].append(s)
 
+        time_start = time.time()
         # simulate: plan, exploit
-        (state_hist,action_hist,infqual_hist,risk_hist,timestep,plan_count,task_flag) = simulation(
+        (state_hist,action_hist,infqual_hist,risk_hist,timestep,plan_count,task_flag,l_true, l_belief) = simulation(
                 model,spec_true,
                 perc_flag,bayes_flag,replan_flag,div_test_flag,act_info_flag)
 
@@ -875,6 +844,46 @@ if __name__ == '__main__':
         risk_hist_all.append(risk_hist)
         timestep_all.append(timestep)
         plan_count_all.append(plan_count)
-        task_flag_all.append(int(task_flag))
+        task_flag_all.append(task_flag)
+        time_all.append(time.time() - time_start)
 
     task_rate = np.mean(task_flag_all)
+timestep_all = np.array(timestep_all)
+task_flag_all = np.array(task_flag_all)
+title_posfix = " in obstacle dense environment"
+title = f"random map sample for perc with {'no' if not bayes_flag else ''} update{' + replan' if replan_flag else''}{' + div' if div_test_flag else''}{' + info' if act_info_flag else''}" + title_posfix
+if not perc_flag:
+    title = f"random map sample for no perc" + title_posfix
+
+print(title)
+#print("average risk: ", np.average(risk_hist_all[-1]))
+print("success rate: ", np.average(task_flag_all) * 100, "%")
+print("average step: ", np.average(timestep_all))
+succ = timestep_all[task_flag_all]
+fail = timestep_all[np.invert(task_flag_all)]
+print("average succ step, ", np.mean(succ))
+print("average fail step, ", np.mean(fail))
+print("number replan:", np.average(plan_count_all))
+print("average time taken: ", np.average(time_all))
+
+print(title)
+print(np.average(task_flag_all) * 100, "\%", np.average(timestep_all), np.mean(succ), np.mean(fail), np.average(plan_count_all), np.average(time_all), sep=" & ")
+
+map_shape = (10,10)
+total = map_shape[0] * map_shape[1]
+ground_true = np.zeros((map_shape[0], map_shape[1],3))
+ground_true[:,:,0:2] = np.array(l_true).reshape((map_shape[0], map_shape[1],2))
+
+l_belief_ob = l_belief[:,0].reshape(map_shape)
+l_belief_ta = l_belief[:,1].reshape(map_shape)
+
+fig, ax = plt.subplots( nrows=1, ncols=3 , figsize=(7,3))
+ax[0].title.set_text('ground truth')
+ax[0].imshow(ground_true)
+ax[1].title.set_text('belief for obstical')
+ax[1].imshow(l_belief_ob)
+ax[2].title.set_text('belief for target')
+ax[2].imshow(l_belief_ta)
+
+fig.suptitle(title)
+plt.savefig(f"map_h2_{int(perc_flag)}{int(bayes_flag)}{int(replan_flag)}{int(div_test_flag)}{int(act_info_flag)}.png")

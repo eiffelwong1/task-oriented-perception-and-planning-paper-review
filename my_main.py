@@ -14,11 +14,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from partial_semantics import *
 
-from my_world import *
 
 ##############################################################################
 # Airsim initialization
-noise = [0.01, 0.05, 0.1, 0.25]
 grid_space = 5
 x_state_num = 7
 y_state_num = 7
@@ -29,7 +27,7 @@ agent_y = 0
 ##############################################################################
 
 # define simulation parameters
-n_iter = 1
+n_iter = 10
 infqual_hist_all = []
 risk_hist_all = []
 timestep_all = []
@@ -40,10 +38,10 @@ for iter in range(n_iter):
 
     # create problem setting
     model = MDP('gridworld')
-    model.semantic_representation(prior_belief='noisy-ind') # changed for scenario 2
-    perc_flag = False
-    bayes_flag = False
-    replan_flag = False
+    model.semantic_representation() # changed for scenario 2
+    perc_flag = True
+    bayes_flag = True
+    replan_flag = True
     div_test_flag = False
     act_info_flag = False
     spec_true = [[],[]]
@@ -113,7 +111,7 @@ for iter in range(n_iter):
             else:
                 pass
         timestep += 1
-        print("Timestep:   ",timestep)
+        #print("Timestep:   ",timestep)
         state = state_hist[-1]
         opt_act = opt_policy[state]
         if 0 in opt_act and len(opt_act)>1:
@@ -134,27 +132,15 @@ for iter in range(n_iter):
         
         #gridworld gen stuff here 
 
-        gridworld = get_current_gridworld(x_state_num,y_state_num)
-
-        busy = []
-        for i in range(gridworld.shape[0]):
-            if gridworld[i] > 0.5:
-                busy.append(i)
-
+        gridworld = model.get_current_gridworld(x_state_num,y_state_num)
+        print(gridworld.shape)
         # compute visibility for each state
-        notVis = compute_visibility_for_all(busy, y_state_num, x_state_num, agent_y, agent_x, radius = 100)
-        notVis = list(set(notVis).difference(set(busy)))
-
-        df = pd.DataFrame(gridworld.reshape((24,37,3))[:,:,2])
-        filepath = 'my_excel_file5.xlsx'
-        df.to_excel(filepath, index=False)
 
         # update belief
         next_label_belief = copy.deepcopy(model.label_belief)
         visit_freq_next = copy.deepcopy(visit_freq) + 1
-        for s in notVis:
-            visit_freq_next[s] -= 1
         for s in model.states:
+            gridworld = gridworld.reshape((-1,3))
             # update for 'obstacle'
             next_label_belief[s,0] = (next_label_belief[s,0]*visit_freq[s] + gridworld[s,1]) / visit_freq_next[s]
             # update for 'target'
@@ -220,3 +206,13 @@ for iter in range(n_iter):
     task_flag_all.append(int(task_flag))
 
 task_rate = np.mean(task_flag_all)
+
+print(infqual_hist_all)
+print(risk_hist_all)
+print(timestep_all)
+print(plan_count_all)
+print(task_flag_all)
+
+print("success rate: ", np.average(task_flag_all) * 100, "%")
+print("average step: ", np.average(timestep_all))
+print("number replan:", np.average(plan_count_all))
